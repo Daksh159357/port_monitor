@@ -1,65 +1,64 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Live Network Scan</title>
+    <meta charset="UTF-8">
+    <title>Live Port Monitor</title>
     <style>
-        body { font-family: 'Courier New', monospace; background: #0d0d0d; color: #00ff41; padding: 40px; }
-        .container { max-width: 800px; margin: auto; border: 1px solid #00ff41; padding: 20px; box-shadow: 0 0 15px #00ff41; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #222; }
-        .loading { font-style: italic; color: #888; }
-        .port-tag { background: #00ff41; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #00e676; padding: 30px; }
+        .monitor-box { border: 2px solid #333; border-radius: 8px; background: #1e1e1e; padding: 20px; max-width: 600px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; color: #fff; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { text-align: left; color: #888; font-size: 0.8em; text-transform: uppercase; }
+        td { padding: 10px 0; border-bottom: 1px solid #2a2a2a; }
+        .port-num { font-weight: bold; color: #00b0ff; }
+        .status-tag { background: rgba(0, 230, 118, 0.1); color: #00e676; padding: 2px 8px; border-radius: 4px; font-size: 0.9em; }
+        #status-indicator { font-size: 0.9em; color: #ffa726; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>[LIVE] TCP Port Scanner</h2>
-        <p>Scanning Target: <strong>127.0.0.1</strong></p>
-        <div id="status" class="loading">Establishing connection to scanner...</div>
+
+<div class="monitor-box">
+    <h2>Port Monitor: 127.0.0.1</h2>
+    <div id="status-indicator">● Scanning in progress...</div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Port</th>
+                <th>Status</th>
+                <th>Protocol</th>
+            </tr>
+        </thead>
+        <tbody id="log">
+            </tbody>
+    </table>
+</div>
+
+<script>
+    const logTable = document.getElementById('log');
+    const statusText = document.getElementById('status-indicator');
+    
+    // Connect to the Python stream
+    const eventSource = new EventSource('/stream');
+
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
         
-        <table>
-            <thead>
-                <tr>
-                    <th>Port</th>
-                    <th>Status</th>
-                    <th>Protocol</th>
-                </tr>
-            </thead>
-            <tbody id="log">
-                </tbody>
-        </table>
-    </div>
+        // Add a new row to the table
+        const row = logTable.insertRow(0); // Newest on top
+        row.innerHTML = `
+            <td class="port-num">${data.port}</td>
+            <td><span class="status-tag">${data.status}</span></td>
+            <td>TCP</td>
+        `;
+    };
 
-    <script>
-        const logTable = document.getElementById('log');
-        const statusDiv = document.getElementById('status');
-        
-        // Connect to the Python SSE stream
-        const eventSource = new EventSource('/stream');
+    eventSource.onerror = function() {
+        statusText.innerText = "● Scan Complete or Connection Lost.";
+        statusText.style.color = "#888";
+        eventSource.close();
+    };
+</script>
 
-        eventSource.onopen = () => {
-            statusDiv.innerText = "Scan in progress... listening for open ports.";
-        };
-
-        eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            
-            // Create a new table row for the found port
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td><span class="port-tag">${data.port}</span></td>
-                <td>ONLINE</td>
-                <td>TCP</td>
-            `;
-            
-            // Add to the top of the table so the newest findings appear first
-            logTable.prepend(row);
-        };
-
-        eventSource.onerror = () => {
-            statusDiv.innerText = "Scan Complete or Connection Closed.";
-            eventSource.close();
-        };
-    </script>
 </body>
 </html>
