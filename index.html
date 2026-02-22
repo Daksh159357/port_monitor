@@ -1,39 +1,69 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Port Scanner</title>
-    <style>
-        body { font-family: Arial; }
-        .port { display:inline-block; margin:2px; padding:4px; background:lightgreen; }
-    </style>
+<title>Live Port Scanner</title>
+<style>
+body{ font-family:Arial; padding:20px;}
+input,button{ padding:8px; margin:4px;}
+.open{ color:green; }
+.closed{ color:red; margin-left:10px;}
+</style>
 </head>
 <body>
-<h2>All-Port Scanner (1-65535)</h2>
+
+<h2>Live Port Scanner (0–65535)</h2>
 
 <input id="target" placeholder="example.com">
-<button onclick="start()">Scan</button>
+<input id="start" value="1">
+<input id="end" value="65535">
+<input id="speed" value="300" title="Higher value = faster scan">
+<input id="delay" value="0.1" title="Delay between each port scan">
+<button onclick="startScan()">Start</button>
+<button onclick="stopScan()">Stop</button>
 
-<div id="open"></div>
+<div id="output" style="margin-top:20px;"></div>
 
 <script>
 let ws;
 
-function start(){
+function startScan(){
+    document.getElementById("output").innerHTML = "";
     ws = new WebSocket("ws://" + location.host + "/scan");
-    ws.onopen = () => {
-        ws.send(JSON.stringify({ target: document.getElementById("target").value }));
+
+    ws.onopen = ()=>{
+        ws.send(JSON.stringify({
+            target: target.value,
+            start: start.value,
+            end: end.value,
+            speed: speed.value,
+            delay: delay.value
+        }));
     };
-    ws.onmessage = (evt) => {
+
+    ws.onmessage = (evt)=>{
         const data = JSON.parse(evt.data);
-        document.getElementById("open").innerHTML = "";
-        data.open.forEach(p => {
-            const el = document.createElement("span");
-            el.className = "port";
-            el.innerText = p;
-            document.getElementById("open").appendChild(el);
-        });
+
+        if(data.done){
+            let done = document.createElement("div");
+            done.innerText = "Scan completed!";
+            document.getElementById("output").appendChild(done);
+            return;
+        }
+
+        let line = document.createElement("div");
+        if(data.status == "open"){
+            line.innerHTML = `<span class="open">${data.port} OPEN</span>`;
+        } else {
+            line.innerHTML = `<span class="closed">${data.port} closed</span>`;
+        }
+        document.getElementById("output").appendChild(line);
     };
 }
+
+function stopScan(){
+    if(ws) ws.close();
+}
 </script>
+
 </body>
 </html>
