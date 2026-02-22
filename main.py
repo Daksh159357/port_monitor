@@ -11,37 +11,38 @@ html = pathlib.Path("index.html").read_text()
 async def home():
     return HTMLResponse(html)
 
-async def scan_ports(target):
-    sem = asyncio.Semaphore(1000)  # limit concurrency
-    try:
-        ip = socket.gethostbyname(target)
-    except:
-        return []
-
-    async def scan(port):
-        async with sem:
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(ip, port), timeout=0.5
-                )
-                writer.close()
-                await writer.wait_closed()
-                return port
-            except:
-                return None
-
-    tasks = [scan(p) for p in range(1, 65536)]
-    results = await asyncio.gather(*tasks)
-    return [p for p in results if p]
-
 @app.websocket("/scan")
 async def websocket_scan(ws: WebSocket):
     await ws.accept()
     data = await ws.receive_json()
 
     target = data["target"]
+    start = int(data["start"])
+    end = int(data["end"])
+    speed = int(data["speed"])
+    delay = float(data["delay"])
 
-    while True:
-        open_ports = await scan_ports(target)
-        await ws.send_json({"open": sorted(open_ports)})
-        await asyncio.sleep(5)
+    try:
+        ip = socket.gethostbyname(target)
+    except:
+        await ws.send_json({"error": "Cannot resolve host"})
+        return
+
+    sem = asyncio.Semaphore(speed)
+
+    async def scan_port(port):
+        async with sem:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(ip, port), timeout=0.6
+                )
+                writer.close()
+                await writer.wait_closed()
+                await ws.send_json({"port": port, "status": "open"})
+            except:
+                await ws.send_json({"port": port, "status": "closed"})
+
+    for p in range(start, end+1):
+        await scan_port(p)
+
+    await ws.send_json({"done": True})
