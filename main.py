@@ -5,57 +5,43 @@ from fastapi.responses import HTMLResponse
 import pathlib
 
 app = FastAPI()
-
-HTML = pathlib.Path("index.html").read_text()
-
+html = pathlib.Path("index.html").read_text()
 
 @app.get("/")
 async def home():
-    return HTMLResponse(HTML)
+    return HTMLResponse(html)
 
+async def scan_ports(target):
+    sem = asyncio.Semaphore(1000)  # limit concurrency
+    try:
+        ip = socket.gethostbyname(target)
+    except:
+        return []
 
-async def scan_ports(target, start, end, speed):
-    sem = asyncio.Semaphore(speed)
-    ip = socket.gethostbyname(target)
-
-    async def scan(p):
+    async def scan(port):
         async with sem:
             try:
-                r, w = await asyncio.wait_for(
-                    asyncio.open_connection(ip, p), timeout=1
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(ip, port), timeout=0.5
                 )
-                w.close()
-                await w.wait_closed()
-                return p
+                writer.close()
+                await writer.wait_closed()
+                return port
             except:
                 return None
 
-    tasks = [scan(p) for p in range(start, end + 1)]
-    res = await asyncio.gather(*tasks)
-    return [p for p in res if p]
-
+    tasks = [scan(p) for p in range(1, 65536)]
+    results = await asyncio.gather(*tasks)
+    return [p for p in results if p]
 
 @app.websocket("/scan")
 async def websocket_scan(ws: WebSocket):
     await ws.accept()
-
     data = await ws.receive_json()
-    target = data["target"]
-    start = int(data["start"])
-    end = int(data["end"])
-    speed = int(data["speed"])
-    delay = float(data["delay"])
 
-    last = set()
+    target = data["target"]
 
     while True:
-        found = set(await scan_ports(target, start, end, speed))
-
-        await ws.send_json({
-            "open": sorted(found),
-            "new": sorted(found - last),
-            "closed": sorted(last - found)
-        })
-
-        last = found
-        await asyncio.sleep(delay)
+        open_ports = await scan_ports(target)
+        await ws.send_json({"open": sorted(open_ports)})
+        await asyncio.sleep(5)
