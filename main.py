@@ -1,7 +1,7 @@
-from flask import Flask, render_template_string, request, jsonify
 import socket
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from flask import Flask, render_template_string, request, jsonify
+import os
 
 app = Flask(__name__)
 
@@ -10,7 +10,7 @@ scan_data = {
     "target": "",
     "open_ports": [],
     "closed_count": 0,
-    "last_closed": [], # Keeps UI light by only storing recent closed
+    "last_closed": [],
     "current_port": 0,
     "is_scanning": False,
     "progress": 0
@@ -28,7 +28,7 @@ def scan_single_port(ip, port):
                     scan_data["open_ports"].sort()
             else:
                 scan_data["closed_count"] += 1
-                # Only keep last 10 closed ports to prevent browser lag
+                # UI Performance: only keep last 10 closed ports in memory
                 scan_data["last_closed"] = ([port] + scan_data["last_closed"])[:10]
     except:
         pass
@@ -36,10 +36,20 @@ def scan_single_port(ip, port):
 
 def run_scanner(ip):
     global scan_data
-    scan_data.update({"is_scanning": True, "open_ports": [], "closed_count": 0, "last_closed": [], "progress": 0})
+    # Reset data for new scan
+    scan_data.update({
+        "target": ip,
+        "is_scanning": True, 
+        "open_ports": [], 
+        "closed_count": 0, 
+        "last_closed": [], 
+        "progress": 0
+    })
     
     total_ports = 65535
-    with ThreadPoolExecutor(max_workers=200) as executor:
+    # Using a ThreadPool to prevent crashing the server while scanning
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=100) as executor:
         for port in range(1, total_ports + 1):
             executor.submit(scan_single_port, ip, port)
             if port % 500 == 0:
@@ -48,102 +58,102 @@ def run_scanner(ip):
     scan_data["progress"] = 100
     scan_data["is_scanning"] = False
 
+# --- UI DESIGN (Glassmorphism Cyber Theme) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CyberScan Pro</title>
+    <title>CyberScan Port Monitor</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
-        :root { --bg: #0b0e14; --card: #161b22; --accent: #00d2ff; --open: #00ff88; --closed: #ff4b2b; }
-        body { background: var(--bg); color: #c9d1d9; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 40px; }
-        .dashboard { max-width: 1100px; margin: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .header-card { grid-column: 1 / span 2; background: var(--card); padding: 30px; border-radius: 15px; border-top: 4px solid var(--accent); text-align: center; margin-bottom: 10px; }
-        .input-box { display: flex; gap: 10px; justify-content: center; margin: 20px 0; }
-        input { background: #0d1117; border: 1px solid #30363d; color: white; padding: 12px; border-radius: 8px; width: 300px; font-size: 16px; outline: none; }
-        input:focus { border-color: var(--accent); box-shadow: 0 0 10px rgba(0, 210, 255, 0.3); }
-        button { background: linear-gradient(45deg, #00d2ff, #3a7bd5); border: none; padding: 12px 30px; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        button:hover { transform: scale(1.05); }
+        :root { --bg: #0d1117; --card: #161b22; --accent: #58a6ff; --open: #3fb950; --closed: #f85149; }
+        body { background: var(--bg); color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        .header { background: var(--card); padding: 25px; border-radius: 12px; border: 1px solid #30363d; text-align: center; margin-bottom: 20px; }
+        .input-area { margin: 20px 0; display: flex; gap: 10px; justify-content: center; }
+        input { background: #010409; border: 1px solid #30363d; color: white; padding: 12px; border-radius: 6px; width: 280px; }
+        button { background: #238636; border: none; color: white; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:disabled { background: #216e39; opacity: 0.6; }
         
-        .stat-card { background: var(--card); border-radius: 12px; padding: 20px; height: 450px; display: flex; flex-direction: column; border: 1px solid #30363d; }
-        .stat-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 15px; }
-        .scroll-area { flex: 1; overflow-y: auto; padding-right: 5px; }
+        .progress-box { width: 100%; background: #30363d; height: 10px; border-radius: 5px; margin: 15px 0; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
         
-        .port-tag { display: flex; justify-content: space-between; padding: 8px 12px; margin: 5px 0; border-radius: 6px; background: #0d1117; font-family: monospace; }
-        .open-tag { border-left: 4px solid var(--open); color: var(--open); }
-        .closed-tag { border-left: 4px solid var(--closed); color: var(--closed); opacity: 0.7; }
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .panel { background: var(--card); border: 1px solid #30363d; border-radius: 12px; height: 500px; display: flex; flex-direction: column; }
+        .panel-header { padding: 15px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+        .list-content { flex: 1; overflow-y: auto; padding: 15px; font-family: monospace; }
         
-        .progress-container { width: 100%; background: #30363d; height: 8px; border-radius: 4px; margin-top: 15px; overflow: hidden; }
-        .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; box-shadow: 0 0 15px var(--accent); }
-        .pulse { animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .item { padding: 8px; margin-bottom: 5px; border-radius: 4px; display: flex; justify-content: space-between; background: #0d1117; }
+        .item.open { border-left: 4px solid var(--open); color: var(--open); }
+        .item.closed { border-left: 4px solid var(--closed); color: var(--closed); opacity: 0.7; }
+        .badge { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #30363d; color: white; }
     </style>
 </head>
 <body>
-
-<div class="dashboard">
-    <div class="header-card">
-        <h1 style="margin:0; color:var(--accent);">🛰️ CYBER-SCAN PORT ANALYZER</h1>
-        <div class="input-box">
-            <input type="text" id="target_ip" placeholder="Target IP (e.g. 127.0.0.1)">
-            <button id="scan_btn">INITIALIZE SCAN</button>
+<div class="container">
+    <div class="header">
+        <h1 style="margin:0; color: var(--accent);">Port Monitor Pro</h1>
+        <div class="input-area">
+            <input type="text" id="target_ip" placeholder="Target IP (e.g., 8.8.8.8)">
+            <button id="scan_btn">START FULL SCAN</button>
         </div>
-        <div id="status_text" class="pulse">Ready to Breach...</div>
-        <div class="progress-container"><div id="progress-fill" class="progress-bar"></div></div>
+        <div id="status">System Idle</div>
+        <div class="progress-box"><div id="progress-bar" class="progress-bar"></div></div>
     </div>
 
-    <div class="stat-card">
-        <div class="stat-header">
-            <h2 style="color:var(--open); margin:0;">ACTIVE PORTS</h2>
-            <span id="open_count" style="background:var(--open); color:black; padding:2px 10px; border-radius:15px; font-weight:bold;">0</span>
+    <div class="main-grid">
+        <div class="panel">
+            <div class="panel-header">
+                <h3 style="color:var(--open); margin:0;">Open Ports</h3>
+                <span id="open_count" class="badge">0</span>
+            </div>
+            <div id="open_list" class="list-content"></div>
         </div>
-        <div id="open_list" class="scroll-area"></div>
-    </div>
-
-    <div class="stat-card">
-        <div class="stat-header">
-            <h2 style="color:var(--closed); margin:0;">CLOSED PORTS</h2>
-            <span id="closed_total" style="background:var(--closed); color:white; padding:2px 10px; border-radius:15px; font-weight:bold;">0</span>
+        <div class="panel">
+            <div class="panel-header">
+                <h3 style="color:var(--closed); margin:0;">Closed Ports (Recent)</h3>
+                <span id="closed_total" class="badge">0</span>
+            </div>
+            <div id="closed_list" class="list-content"></div>
         </div>
-        <div id="closed_list" class="scroll-area"></div>
     </div>
 </div>
 
 <script>
     $('#scan_btn').click(function() {
         let ip = $('#target_ip').val();
-        if(!ip) return alert("Please input target IP!");
+        if(!ip) return alert("Enter an IP Address");
+        $(this).prop('disabled', true).text('Scanning...');
         $.post('/start', {ip: ip});
     });
 
-    function update() {
-        $.get('/data', function(d) {
-            $('#progress-fill').css('width', d.progress + '%');
-            $('#open_count').text(d.open_ports.length);
-            $('#closed_total').text(d.closed_count);
+    function poll() {
+        $.get('/data', function(data) {
+            $('#progress-bar').css('width', data.progress + '%');
+            $('#open_count').text(data.open_ports.length);
+            $('#closed_total').text(data.closed_count);
             
-            if(d.is_scanning) {
-                $('#status_text').text("ANALYZING PORT: " + d.current_port + " [" + d.progress + "%]");
-            } else if(d.progress == 100) {
-                $('#status_text').text("SCAN COMPLETE").removeClass('pulse');
+            if(data.is_scanning) {
+                $('#status').text("Current Port: " + data.current_port + " (" + data.progress + "%)");
+            } else if(data.progress == 100) {
+                $('#status').text("Scan Complete!");
+                $('#scan_btn').prop('disabled', false).text('START FULL SCAN');
             }
 
-            // Update Open Ports
             let openHtml = "";
-            d.open_ports.forEach(p => {
-                openHtml += `<div class="port-tag open-tag"><span>PORT ${p}</span><span>OPEN</span></div>`;
+            data.open_ports.forEach(p => {
+                openHtml += `<div class="item open"><span>Port ${p}</span><span>OPEN</span></div>`;
             });
             $('#open_list').html(openHtml);
 
-            // Update Closed Ports (Show recent activity)
             let closedHtml = "";
-            d.last_closed.forEach(p => {
-                closedHtml += `<div class="port-tag closed-tag"><span>PORT ${p}</span><span>CLOSED</span></div>`;
+            data.last_closed.forEach(p => {
+                closedHtml += `<div class="item closed"><span>Port ${p}</span><span>CLOSED</span></div>`;
             });
             $('#closed_list').html(closedHtml);
         });
     }
-    setInterval(update, 800);
+    setInterval(poll, 1000);
 </script>
 </body>
 </html>
@@ -162,4 +172,6 @@ def start():
 def get_data(): return jsonify(scan_data)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # For local testing
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
