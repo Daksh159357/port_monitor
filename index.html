@@ -1,69 +1,65 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Live Port Scanner</title>
-<style>
-body{ font-family:Arial; padding:20px;}
-input,button{ padding:8px; margin:4px;}
-.open{ color:green; }
-.closed{ color:red; margin-left:10px;}
-</style>
+    <title>Live Network Scan</title>
+    <style>
+        body { font-family: 'Courier New', monospace; background: #0d0d0d; color: #00ff41; padding: 40px; }
+        .container { max-width: 800px; margin: auto; border: 1px solid #00ff41; padding: 20px; box-shadow: 0 0 15px #00ff41; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #222; }
+        .loading { font-style: italic; color: #888; }
+        .port-tag { background: #00ff41; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <h2>[LIVE] TCP Port Scanner</h2>
+        <p>Scanning Target: <strong>127.0.0.1</strong></p>
+        <div id="status" class="loading">Establishing connection to scanner...</div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Port</th>
+                    <th>Status</th>
+                    <th>Protocol</th>
+                </tr>
+            </thead>
+            <tbody id="log">
+                </tbody>
+        </table>
+    </div>
 
-<h2>Live Port Scanner (0–65535)</h2>
+    <script>
+        const logTable = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
+        
+        // Connect to the Python SSE stream
+        const eventSource = new EventSource('/stream');
 
-<input id="target" placeholder="example.com">
-<input id="start" value="1">
-<input id="end" value="65535">
-<input id="speed" value="300" title="Higher value = faster scan">
-<input id="delay" value="0.1" title="Delay between each port scan">
-<button onclick="startScan()">Start</button>
-<button onclick="stopScan()">Stop</button>
+        eventSource.onopen = () => {
+            statusDiv.innerText = "Scan in progress... listening for open ports.";
+        };
 
-<div id="output" style="margin-top:20px;"></div>
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            // Create a new table row for the found port
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><span class="port-tag">${data.port}</span></td>
+                <td>ONLINE</td>
+                <td>TCP</td>
+            `;
+            
+            // Add to the top of the table so the newest findings appear first
+            logTable.prepend(row);
+        };
 
-<script>
-let ws;
-
-function startScan(){
-    document.getElementById("output").innerHTML = "";
-    ws = new WebSocket("ws://" + location.host + "/scan");
-
-    ws.onopen = ()=>{
-        ws.send(JSON.stringify({
-            target: target.value,
-            start: start.value,
-            end: end.value,
-            speed: speed.value,
-            delay: delay.value
-        }));
-    };
-
-    ws.onmessage = (evt)=>{
-        const data = JSON.parse(evt.data);
-
-        if(data.done){
-            let done = document.createElement("div");
-            done.innerText = "Scan completed!";
-            document.getElementById("output").appendChild(done);
-            return;
-        }
-
-        let line = document.createElement("div");
-        if(data.status == "open"){
-            line.innerHTML = `<span class="open">${data.port} OPEN</span>`;
-        } else {
-            line.innerHTML = `<span class="closed">${data.port} closed</span>`;
-        }
-        document.getElementById("output").appendChild(line);
-    };
-}
-
-function stopScan(){
-    if(ws) ws.close();
-}
-</script>
-
+        eventSource.onerror = () => {
+            statusDiv.innerText = "Scan Complete or Connection Closed.";
+            eventSource.close();
+        };
+    </script>
 </body>
 </html>
