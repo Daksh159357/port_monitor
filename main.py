@@ -1,41 +1,101 @@
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import HTMLResponse
+import asyncio
 import socket
-import json
-import time
-from flask import Flask, render_template, Response, stream_with_context
 
-# template_folder="." tells Flask to look in the same folder as app.py
-app = Flask(__name__, template_folder=".")
+app = FastAPI()
 
-TARGET_IP = "127.0.0.1"
+# Embed the HTML page inside the Python script
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Full Port Scanner</title>
+    <style>
+        body{font-family:Arial;}
+        #log{padding:10px; border:1px solid #ccc; height:400px; overflow:auto;}
+        .open{color:green;}
+        .closed{color:red;}
+    </style>
+</head>
+<body>
+<h2>Live Full Port Scanner</h2>
 
-def generate_scan_results():
-    """Scans ports 1-1024 and streams findings live."""
-    for port in range(1, 1025):
+<input id="target" placeholder="Enter IP/Domain">
+<button onclick="startScan()">Start Scan</button>
+<button onclick="stopScan()">Stop</button>
+
+<div id="log"></div>
+
+<script>
+let ws;
+
+function startScan(){
+    document.getElementById("log").innerHTML = "";
+    ws = new WebSocket("ws://" + location.host + "/scan");
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ target: target.value }));
+    };
+    ws.onmessage = (evt) => {
+        let data = JSON.parse(evt.data);
+        let log = document.getElementById("log");
+
+        if(data.done){
+            log.innerHTML += "<div><b>Scan complete.</b></div>";
+            return;
+        }
+
+        let line = document.createElement("div");
+        if(data.status === "open"){
+            line.innerHTML = `<span class="open">${data.port} OPEN</span>`;
+        } else {
+            line.innerHTML = `<span class="closed">${data.port} closed</span>`;
+        }
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+    };
+}
+
+function stopScan(){
+    if(ws) ws.close();
+}
+</script>
+
+</body>
+</html>
+"""
+
+@app.get("/")
+async def index():
+    return HTMLResponse(HTML)
+
+@app.websocket("/scan")
+async def scan_ports(ws: WebSocket):
+    await ws.accept()
+    data = await ws.receive_json()
+    target = data.get("target")
+
+    # Resolve address
+    try:
+        ip = socket.gethostbyname(target)
+    except:
+        await ws.send_json({"done": True})
+        return
+
+    async def scan(p):
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(0.05)
-                result = s.connect_ex((TARGET_IP, port))
-                
-                # Only send data if the port is OPEN (result == 0)
-                if result == 0:
-                    data = json.dumps({"port": port, "status": "Open"})
-                    yield f"data: {data}\n\n"
-            
-            # Tiny sleep to prevent CPU spikes
-            time.sleep(0.01)
-        except Exception:
-            continue
+            conn = asyncio.open_connection(ip, p)
+            reader, writer = await asyncio.wait_for(conn, timeout=0.5)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except:
+            return False
 
-@app.route('/')
-def index():
-    # Now it looks for index.html in the same folder
-    return render_template('index.html')
+    # Scan all 65,535 ports live
+    for port in range(1, 65536):
+        is_open = await scan(port)
+        await ws.send_json({"port": port, "status": "open" if is_open else "closed"})
 
-@app.route('/stream')
-def stream():
-    return Response(stream_with_context(generate_scan_results()), 
-                    mimetype='text/event-stream')
-
-if __name__ == '__main__':
-    # threaded=True is required for SSE live updates
-    app.run(debug=True, port=5000, threaded=True)
+    # Signal done
+    await ws.send_json({"done": True})
