@@ -1,48 +1,39 @@
-import asyncio
 import socket
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import HTMLResponse
-import pathlib
+import json
+import time
+from flask import Flask, render_template, Response
 
-app = FastAPI()
-html = pathlib.Path("index.html").read_text()
+app = Flask(__name__)
 
-@app.get("/")
-async def home():
-    return HTMLResponse(html)
+# The Target (Change this to the IP you are authorized to scan)
+TARGET_IP = "127.0.0.1"
 
-@app.websocket("/scan")
-async def websocket_scan(ws: WebSocket):
-    await ws.accept()
-    data = await ws.receive_json()
+def generate_scan_results():
+    """
+    Scans ports and yields results immediately to the frontend.
+    """
+    # Scanning a sample range; change to range(1, 65536) for a full scan
+    for port in range(1, 1025):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.01) # Very fast timeout for local scanning
+            result = s.connect_ex((TARGET_IP, port))
+            
+            if result == 0:
+                # Format required for Server-Sent Events (SSE)
+                data = json.dumps({"port": port, "status": "Open"})
+                yield f"data: {data}\n\n"
+        
+        # Artificial tiny sleep so you can actually see the "live" flow
+        time.sleep(0.01)
 
-    target = data["target"]
-    start = int(data["start"])
-    end = int(data["end"])
-    speed = int(data["speed"])
-    delay = float(data["delay"])
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-    try:
-        ip = socket.gethostbyname(target)
-    except:
-        await ws.send_json({"error": "Cannot resolve host"})
-        return
+@app.route('/stream')
+def stream():
+    # This route stays open and 'pipes' the generator to the browser
+    return Response(generate_scan_results(), mimetype='text/event-stream')
 
-    sem = asyncio.Semaphore(speed)
-
-    async def scan_port(port):
-        async with sem:
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(ip, port), timeout=0.6
-                )
-                writer.close()
-                await writer.wait_closed()
-                await ws.send_json({"port": port, "status": "open"})
-            except:
-                await ws.send_json({"port": port, "status": "closed"})
-
-    for p in range(start, end+1):
-        await scan_port(p)
-
-    await ws.send_json({"done": True})
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
