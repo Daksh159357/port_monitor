@@ -1,35 +1,55 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Live Port Monitor</title>
+<title>Live Port Scanner</title>
+
 <style>
 body{
     background:#0d1117;
     color:#e6edf3;
     font-family:Arial;
-    text-align:center;
 }
+
 .container{
     width:900px;
     margin:auto;
+    text-align:center;
 }
-input,button{
+
+.card{
+    background:#161b22;
+    padding:20px;
+    border-radius:12px;
+    margin-top:20px;
+}
+
+label{
+    display:block;
+    margin-top:10px;
+    font-size:14px;
+    color:#8b949e;
+}
+
+input{
+    width:80%;
     padding:10px;
-    margin:5px;
+    margin-top:5px;
     border:none;
     border-radius:6px;
 }
+
 button{
-    background:#238636;
-    color:white;
+    padding:12px 25px;
+    margin:10px;
+    border:none;
+    border-radius:8px;
+    font-size:16px;
     cursor:pointer;
 }
-.panel{
-    background:#161b22;
-    padding:20px;
-    margin-top:20px;
-    border-radius:12px;
-}
+
+.start{ background:#238636; color:white;}
+.stop{ background:#da3633; color:white;}
+
 .port{
     display:inline-block;
     margin:5px;
@@ -37,36 +57,67 @@ button{
     border-radius:6px;
     background:#1f6feb;
 }
+
 .new{ background:#2ea043; }
 .closed{ background:#da3633; }
+
+.status{
+    margin-top:10px;
+    font-weight:bold;
+}
 </style>
 </head>
 
 <body>
+
 <div class="container">
-<h1>Live Port Scanner</h1>
 
-<input id="target" placeholder="IP or domain">
-<input id="start" placeholder="Start port" value="1">
-<input id="end" placeholder="End port" value="1024">
-<input id="speed" placeholder="Threads" value="800">
-<input id="delay" placeholder="Delay" value="5">
+<h1>Live Port Scanner Dashboard</h1>
+
+<div class="card">
+
+<label>Target IP or Domain</label>
+<input id="target" placeholder="example.com">
+
+<label>Start Port</label>
+<input id="start" value="1">
+
+<label>End Port</label>
+<input id="end" value="1024">
+
+<label>Speed (Higher = Faster but heavier)</label>
+<input id="speed" value="800">
+
+<label>Refresh Delay (seconds)</label>
+<input id="delay" value="5">
+
 <br>
-<button onclick="startScan()">Start Scan</button>
+<button class="start" onclick="startScan()">Start Scan</button>
+<button class="stop" onclick="stopScan()">Stop</button>
 
-<div class="panel">
+<div class="status" id="status">Idle</div>
+
+</div>
+
+
+<div class="card">
 <h2>Open Ports</h2>
 <div id="ports"></div>
 </div>
+
 </div>
+
 
 <script>
 let ws;
 
 function startScan(){
+
+    document.getElementById("status").innerText="Scanning...";
+
     ws = new WebSocket("ws://" + location.host + "/scan");
 
-    ws.onopen = () => {
+    ws.onopen = ()=>{
         ws.send(JSON.stringify({
             target:target.value,
             start:start.value,
@@ -103,6 +154,14 @@ function startScan(){
         });
     };
 }
+
+function stopScan(){
+    if(ws){
+        ws.close();
+        document.getElementById("status").innerText="Stopped";
+    }
+}
 </script>
+
 </body>
 </html>
