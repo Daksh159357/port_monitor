@@ -1,39 +1,41 @@
 import socket
 import json
 import time
-from flask import Flask, render_template, Response
+from flask import Flask, render_template, Response, stream_with_context
 
-app = Flask(__name__)
+# template_folder="." tells Flask to look in the same folder as app.py
+app = Flask(__name__, template_folder=".")
 
-# The Target (Change this to the IP you are authorized to scan)
 TARGET_IP = "127.0.0.1"
 
 def generate_scan_results():
-    """
-    Scans ports and yields results immediately to the frontend.
-    """
-    # Scanning a sample range; change to range(1, 65536) for a full scan
+    """Scans ports 1-1024 and streams findings live."""
     for port in range(1, 1025):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.01) # Very fast timeout for local scanning
-            result = s.connect_ex((TARGET_IP, port))
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.05)
+                result = s.connect_ex((TARGET_IP, port))
+                
+                # Only send data if the port is OPEN (result == 0)
+                if result == 0:
+                    data = json.dumps({"port": port, "status": "Open"})
+                    yield f"data: {data}\n\n"
             
-            if result == 0:
-                # Format required for Server-Sent Events (SSE)
-                data = json.dumps({"port": port, "status": "Open"})
-                yield f"data: {data}\n\n"
-        
-        # Artificial tiny sleep so you can actually see the "live" flow
-        time.sleep(0.01)
+            # Tiny sleep to prevent CPU spikes
+            time.sleep(0.01)
+        except Exception:
+            continue
 
 @app.route('/')
 def index():
+    # Now it looks for index.html in the same folder
     return render_template('index.html')
 
 @app.route('/stream')
 def stream():
-    # This route stays open and 'pipes' the generator to the browser
-    return Response(generate_scan_results(), mimetype='text/event-stream')
+    return Response(stream_with_context(generate_scan_results()), 
+                    mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # threaded=True is required for SSE live updates
+    app.run(debug=True, port=5000, threaded=True)
