@@ -1,3 +1,4 @@
 fastapi==0.129.2
 uvicorn[standard]==0.23.0
 Flask==3.0.3
+gunicorn==25.1.0
