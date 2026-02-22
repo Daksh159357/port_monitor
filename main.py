@@ -2,10 +2,11 @@ import asyncio
 import socket
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
+import pathlib
 
 app = FastAPI()
 
-HTML = open("index.html").read()
+HTML = pathlib.Path("index.html").read_text()
 
 
 @app.get("/")
@@ -50,13 +51,10 @@ async def websocket_scan(ws: WebSocket):
     while True:
         found = set(await scan_ports(target, start, end, speed))
 
-        new = list(found - last)
-        closed = list(last - found)
-
         await ws.send_json({
             "open": sorted(found),
-            "new": sorted(new),
-            "closed": sorted(closed)
+            "new": sorted(found - last),
+            "closed": sorted(last - found)
         })
 
         last = found
